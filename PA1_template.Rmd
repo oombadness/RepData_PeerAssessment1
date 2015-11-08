@@ -3,23 +3,162 @@ title: "Reproducible Research: Peer Assessment 1"
 output: 
   html_document:
     keep_md: true
+    css: custom.css
 ---
 
+```{r setup, include=FALSE}
+  install.packages("ggplot2", repos="http://cran.rstudio.com/")
+  install.packages("xtable", repos="http://cran.rstudio.com/")
+  library(ggplot2)
+  library(xtable)
+```
 
 ## Loading and preprocessing the data
+We read in the data from the .zip file distributed with the base repository.
 
+```{r origData, warning=FALSE, message=FALSE}
 
+  ## Read in the data - it comes in our project's git repo as a zip of a .csv
+  ## extract it and save a copy of the original data
+  origData <- read.csv(unz(paste(getwd(), "/activity.zip", sep = ""), "activity.csv"))
+```
 
 ## What is mean total number of steps taken per day?
-
-
+```{r histRawMeanStepsDay, warning=FALSE, message=FALSE}
+    ## Create a frame that contains some useful breakdowns
+  origView <- data.frame(date = as.Date(levels(origData$date)), 
+                      steps = aggregate(x = origData$steps, 
+                                        by = list(Date=origData$date), 
+                                        FUN = sum, na.rm = F)[,2], 
+                      meanSteps = aggregate(x = origData$steps, 
+                                        by = list(Date=origData$date), 
+                                        FUN = mean, na.rm = F)[,2], 
+                      medianSteps = aggregate(x = origData$steps, 
+                                        by = list(Date=origData$date), 
+                                        FUN = median, na.rm = F)[,2])
+  
+  ggplot(data = origView, 
+         aes(origView$date, origView$steps)) + 
+          geom_bar(stat="identity") + 
+          labs(x = "Date", y = "Steps") + 
+          scale_x_date(breaks = "week") +
+          theme(axis.text.x = element_text(angle = 90, hjust = 1))
+  
+  origXtab <- data.frame(Date = as.character(origView$date), 
+                      Total = origView$steps, 
+                      Average = origView$meanSteps, 
+                      Median = origView$medianSteps)
+```
+```{r tabRawStats, results='asis',  warning=FALSE, message=FALSE}  
+  print(xtable(origXtab, align = c("", "c", "c", "c", "c")), 
+        type = "html", 
+        include.rownames=FALSE)
+```
 
 ## What is the average daily activity pattern?
+A graph of the average steps taken per interval.
+```{r lineAvgStepsInterval}
+  avgByInterval <- data.frame(Interval = unique(origData$interval),
+                              AvgSteps = aggregate(x = origData$steps,
+                                                by = list(interval = origData$interval),
+                                                FUN = mean, 
+                                                na.rm = T)[,2])
+  plot(x = avgByInterval$Interval, 
+       y = avgByInterval$AvgSteps, 
+       type = "l", 
+       xlab = "Interval", ylab = "Average Steps")
+```
 
-
+```{r, echo=FALSE}
+  averageMaxInterval <- subset(avgByInterval, AvgSteps == max(avgByInterval$AvgSteps))
+```
+Interval `r averageMaxInterval$Interval` shows the maximum average number of steps with `r averageMaxInterval$AvgSteps`
 
 ## Imputing missing values
+We impute missing values by using our previously generated interval-averages to demonstrate how 'NA' values (and a strategy
+to replace them) can alter our outcomes.  We use a crude method of replacement - using the overall average number of steps
+in our dataset, to replace 'NA' / unrecorded values.  This is intentionally 'bad' to demonstrate the impact of a poor
+strategy choice.  
+```{r histImputedMeanStepsDay, warning=FALSE, message=FALSE}
+  overallMean <- mean(origData$steps, na.rm=T)
+  imputedData <- data.frame(origData)
+  naCount <- length(imputedData$steps[which(is.na(imputedData$steps))])
+  imputedData$steps[which(is.na(imputedData$steps))] <- overallMean
 
+   imputedView <- data.frame(date = as.Date(levels(imputedData$date)), 
+                      steps = aggregate(x = imputedData$steps, 
+                                        by = list(Date=imputedData$date), 
+                                        FUN = sum, na.rm = F)[,2], 
+                      meanSteps = aggregate(x = imputedData$steps, 
+                                        by = list(Date=imputedData$date), 
+                                        FUN = mean, na.rm = F)[,2], 
+                      medianSteps = aggregate(x = imputedData$steps, 
+                                        by = list(Date=imputedData$date), 
+                                        FUN = median, na.rm = F)[,2])
+  
+  ggplot(data = imputedView, 
+         aes(imputedView$date, imputedView$steps)) + 
+          geom_bar(stat="identity") + 
+          labs(x = "Date", y = "Steps") + 
+          scale_x_date(breaks = "week") +
+          theme(axis.text.x = element_text(angle = 90, hjust = 1))
+  
+  imputedXtab <- data.frame(Date = as.character(imputedView$date), 
+                      Total = imputedView$steps, 
+                      Average = imputedView$meanSteps, 
+                      Median = imputedView$medianSteps)
+```
+```{r tabImputedStats, results='asis',  warning=FALSE, message=FALSE}  
+  print(xtable(imputedXtab, align = c("", "c", "c", "c", "c")), 
+        type = "html", 
+        include.rownames=FALSE)
+```
 
+The above histogram and table are the result of replacing `r naCount` uncollected data points in the original dataset with the 
+value `r overallMean`.  A few changes of note:
 
+  * Some medians are now non-zerio
+  * There are no days reporting zero total steps
+  * While ceilings are not noticeably increased, floors are significantly higher
+  
+  
 ## Are there differences in activity patterns between weekdays and weekends?
+We use the imputedView calculated above with a bit of factor manipulation to introspect into activity patterns on 
+weekend days (Saturday, Sunday) vs week days.
+```{r lineImputedByInterval}
+  ## Alter the existing 'date' column into the 'weekdays()' format
+  # Levels: Friday Monday Saturday Sunday Thursday Tuesday Wednesday
+  imputedData$date <- factor(weekdays(as.Date(as.character(imputedData$date))))
+  
+  ## Alter the (now factored) date field again to read either 'Weekday' or 'Weekend'
+  dayTypeFactor <- c("Weekday", # Friday 
+                     "Weekday", # Monday
+                     "Weekend", # Saturday 
+                     "Weekend", # Sunday 
+                     "Weekday", # Thursday 
+                     "Weekday", # Tuesday 
+                     "Weekday") # Wednesday
+  
+  ## Compress them
+  imputedData$date <- factor(dayTypeFactor[imputedData$date])
+  
+  ## Aggregate by factors over intervals
+  avgImputedByInterval <- data.frame(
+                            aggregate(
+                              x = imputedData$steps,
+                              by = list(
+                                interval = imputedData$interval, 
+                                date = imputedData$date),
+                              FUN = mean, 
+                              na.rm = T))
+  
+  ## Create a facet grid based on our new factors ('Weekday' and 'Weekend')
+  ggplot(data = avgImputedByInterval, 
+         aes(avgImputedByInterval$interval, avgImputedByInterval$x)) + 
+          geom_line() + 
+          labs(x = "Interval", y = "Average Steps Taken") +
+          facet_wrap(~ date, ncol = 1)
+```
+  
+As the graph illustrates, weekdays show more activity earlier and later in the day (perhaps before and after work / school / etc)
+with weekends showing more consistent activity in the center of the day (perhaps during leisure activities).
